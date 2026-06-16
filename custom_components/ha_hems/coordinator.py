@@ -22,7 +22,6 @@ class HEMSCoordinator(DataUpdateCoordinator):
     """Manages polling and state for all HEMS devices."""
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
-        """Initialize the coordinator."""
         super().__init__(
             hass,
             _LOGGER,
@@ -35,9 +34,22 @@ class HEMSCoordinator(DataUpdateCoordinator):
         self.battery = None
         self.ev_chargers = []
         self.tariff = None
+        self._manager = None  # set after setup
+
+    def set_manager(self, manager) -> None:
+        """Register the HEMSManager so coordinator can trigger control."""
+        self._manager = manager
+
+    async def async_discover_devices(self) -> None:
+        """Run discovery for all device types."""
+        self.solar = await discover_solar(self.hass, self.entry)
+        self.grid = await discover_grid(self.hass, self.entry)
+        self.battery = await discover_battery(self.hass, self.entry)
+        self.ev_chargers = await discover_ev_chargers(self.hass, self.entry)
+        self.tariff = await discover_tariff(self.hass, self.entry)
 
     async def _async_update_data(self) -> dict:
-        """Fetch latest data from all discovered entities."""
+        """Fetch latest data, then trigger control evaluation."""
         try:
             data = {}
 
@@ -63,13 +75,16 @@ class HEMSCoordinator(DataUpdateCoordinator):
                 for ev in self.ev_chargers
             ]
 
+            # Trigger control logic after every data refresh
+            if self._manager:
+                await self._manager.async_evaluate()
+
             return data
 
         except Exception as err:
             raise UpdateFailed(f"Error updating HEMS data: {err}") from err
 
     def _get_state_float(self, entity_id: str | None) -> float | None:
-        """Get entity state as float."""
         if not entity_id:
             return None
         state = self.hass.states.get(entity_id)
@@ -81,18 +96,9 @@ class HEMSCoordinator(DataUpdateCoordinator):
             return None
 
     def _get_state_bool(self, entity_id: str | None) -> bool | None:
-        """Get entity state as bool."""
         if not entity_id:
             return None
         state = self.hass.states.get(entity_id)
         if state is None:
             return None
         return state.state == "on"
-
-    async def async_discover_devices(self) -> None:
-        """Run discovery for all device types."""
-        self.solar = await discover_solar(self.hass, self.entry)
-        self.grid = await discover_grid(self.hass, self.entry)
-        self.battery = await discover_battery(self.hass, self.entry)
-        self.ev_chargers = await discover_ev_chargers(self.hass, self.entry)
-        self.tariff = await discover_tariff(self.hass, self.entry)

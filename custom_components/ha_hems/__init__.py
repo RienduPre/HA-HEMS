@@ -6,13 +6,24 @@ from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
 from .coordinator import HEMSCoordinator
+from .control.manager import HEMSManager
 
-PLATFORMS = ["sensor", "switch", "number"]
+PLATFORMS = ["sensor"]
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up HA-HEMS from a config entry."""
     coordinator = HEMSCoordinator(hass, entry)
+
+    # Run device discovery
+    await coordinator.async_discover_devices()
+
+    # Set up control manager and wire it to the coordinator
+    manager = HEMSManager(hass, coordinator)
+    await manager.async_setup()
+    coordinator.set_manager(manager)
+
+    # First data refresh (also triggers first control evaluation)
     await coordinator.async_config_entry_first_refresh()
 
     hass.data.setdefault(DOMAIN, {})
