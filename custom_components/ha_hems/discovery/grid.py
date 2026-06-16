@@ -1,4 +1,4 @@
-"""Discover grid power/energy entities."""
+"""Discover grid power entities — supports multiple meters (3-phase split etc)."""
 from __future__ import annotations
 
 import logging
@@ -9,64 +9,60 @@ from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers import entity_registry as er
 
-from ..const import CONF_GRID_ENTITY
-
 _LOGGER = logging.getLogger(__name__)
+
+GRID_PLATFORMS = {
+    "dsmr", "dsmr_reader", "p1_monitor", "tibber",
+    "homewizard", "ztatz", "youless", "easyenergy",
+}
+
+GRID_KEYWORDS = ("net", "grid", "meter", "p1", "dsmr", "slimme", "levering", "afname")
 
 
 @dataclass
 class GridDevice:
-    """Represents discovered grid connection entities."""
-    power_entity: str       # W, positive = import, negative = export
+    """Represents a single grid connection/meter."""
+    power_entity: str
     name: str
 
 
-async def discover_grid(hass: HomeAssistant, entry: ConfigEntry) -> GridDevice | None:
-    """Find the best grid power entity.
-
-    Priority:
-    1. Manually configured entity
-    2. Platform: dsmr, dsmr_reader, p1_monitor, tibber_pulse, ztatz, homewizard
-    3. Name/uid hints: 'net', 'grid', 'meter', 'p1', 'dsmr', 'slimme meter'
-    """
-    manual = entry.data.get(CONF_GRID_ENTITY)
+async def discover_grid(hass: HomeAssistant, entry: ConfigEntry) -> list[GridDevice]:
+    """Find all grid power entities."""
+    manual = entry.data.get("grid_entities")
     if manual:
-        _LOGGER.debug("Grid: using manually configured entity %s", manual)
-        return GridDevice(power_entity=manual, name="Grid (manual)")
+        return [GridDevice(power_entity=e, name=f"Grid {i+1} (manual)") for i, e in enumerate(manual)]
 
     registry = er.async_get(hass)
-
-    grid_platforms = {
-        "dsmr", "dsmr_reader", "p1_monitor", "tibber",
-        "homewizard", "ztatz", "youless", "easyenergy",
-    }
-
-    candidates = []
+    candidates: list[tuple[int, str, str]] = []
+    seen: set[str] = set()
 
     for entity in registry.entities.values():
-        if entity.domain != "sensor":
+        if entity.domain != "sensor" or entity.disabled_by:
             continue
-        if entity.device_class != SensorDeviceClass.POWER and entity.original_device_class != SensorDeviceClass.POWER:
-            continue
-        if entity.disabled_by:
+        dc = entity.device_class or entity.original_device_class
+        if dc != SensorDeviceClass.POWER:
             continue
 
         platform = entity.platform or ""
         uid = (entity.unique_id or "").lower()
         name = (entity.original_name or "").lower()
+        eid = entity.entity_id
 
-        if platform in grid_platforms:
-            candidates.append((0, entity.entity_id, entity.original_name or entity.entity_id))
+        if eid in seen:
             continue
 
-        if any(kw in uid or kw in name for kw in ("net", "grid", "meter", "p1", "dsmr", "slimme", "levering", "afname")):
-            candidates.append((1, entity.entity_id, entity.original_name or entity.entity_id))
+        if platform in GRID_PLATFORMS:
+            candidates.append((0, eid, entity.original_name or eid))
+            seen.add(eid)
+        elif any(kw in uid or kw in name for kw in GRID_KEYWORDS):
+            candidates.append((1, eid, entity.original_name or eid))
+            seen.add(eid)
 
     if not candidates:
-        _LOGGER.warning("Grid discovery: no candidate found")
-        return None
+        _LOGGER.warning("Grid discovery: no meter found")
+        return []
 
     candidates.sort(key=lambda x: x[0])
-    best = candidates[0]
-    _LOGGER.info("Grid discovery: selected %s (confidence tier %d)", best[1], best[0])
-    return GridDevice(power_entity=best[1], name=best[2])
+    result = [GridDevice(power_entity=c[1], name=c[2]) for c in candidates]
+    _LOGGER.info("Grid discovery: found %d meter(s): %s", len(result), [r.power_entity for r in result])
+    return result
