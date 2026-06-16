@@ -1,0 +1,12 @@
+{
+  "domain": "ha_hems",
+  "name": "HA-HEMS",
+  "version": "0.1.0",
+  "config_flow": true,
+  "documentation": "https://github.com/RienduPre/HA-HEMS",
+  "issue_tracker": "https://github.com/RienduPre/HA-HEMS/issues",
+  "dependencies": [],
+  "codeowners": ["@RienduPre"],
+  "iot_class": "local_polling",
+  "requirements": []
+}
