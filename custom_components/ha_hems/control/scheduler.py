@@ -1,14 +1,20 @@
-"""Scheduling logic for HA-HEMS — decides modes based on time + tariff."""
+"""Scheduling logic for HA-HEMS — reads tunable thresholds from options."""
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime
 
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
-from .ev_charger import EVChargingMode, CHEAP_TARIFF_THRESHOLD
+from ..const import (
+    CONF_CHEAP_TARIFF_THRESHOLD,
+    CONF_EXPENSIVE_TARIFF_THRESHOLD,
+    DEFAULT_CHEAP_TARIFF_THRESHOLD,
+    DEFAULT_EXPENSIVE_TARIFF_THRESHOLD,
+)
+from .ev_charger import EVChargingMode
 from .battery import BatteryMode
 
 _LOGGER = logging.getLogger(__name__)
@@ -33,11 +39,11 @@ class HEMSScheduler:
         """Return the current recommended schedule."""
         data = self.coordinator.data or {}
         tariff = data.get("current_tariff")
-        solar_w = data.get("solar_power") or 0.0
-        now: datetime = dt_util.now()
-        hour = now.hour
 
-        # Negative tariff: grid is paying us to consume → charge battery + charge EV fast
+        options = self.coordinator.entry.options
+        cheap = options.get(CONF_CHEAP_TARIFF_THRESHOLD, DEFAULT_CHEAP_TARIFF_THRESHOLD)
+        expensive = options.get(CONF_EXPENSIVE_TARIFF_THRESHOLD, DEFAULT_EXPENSIVE_TARIFF_THRESHOLD)
+
         if tariff is not None and tariff < 0:
             return HEMSSchedule(
                 ev_mode=EVChargingMode.FAST,
@@ -45,31 +51,27 @@ class HEMSScheduler:
                 reason=f"Negative tariff ({tariff:.4f} €/kWh): maximize consumption",
             )
 
-        # Very cheap tariff (e.g. < 0.05 €/kWh): charge battery + EV
-        if tariff is not None and tariff < 0.05:
+        if tariff is not None and tariff < cheap / 2:
             return HEMSSchedule(
                 ev_mode=EVChargingMode.FAST,
                 battery_mode=BatteryMode.CHARGE,
                 reason=f"Very cheap tariff ({tariff:.4f} €/kWh): opportunistic charging",
             )
 
-        # Cheap tariff (< threshold): EV solar or cheap
-        if tariff is not None and tariff < CHEAP_TARIFF_THRESHOLD:
+        if tariff is not None and tariff < cheap:
             return HEMSSchedule(
                 ev_mode=EVChargingMode.SOLAR_OR_CHEAP,
                 battery_mode=BatteryMode.NET_ZERO,
                 reason=f"Cheap tariff ({tariff:.4f} €/kWh): solar or cheap EV charging",
             )
 
-        # Expensive tariff (> 0.30 €/kWh): discharge battery to offset grid import
-        if tariff is not None and tariff > 0.30:
+        if tariff is not None and tariff > expensive:
             return HEMSSchedule(
                 ev_mode=EVChargingMode.SOLAR,
                 battery_mode=BatteryMode.DISCHARGE,
                 reason=f"Expensive tariff ({tariff:.4f} €/kWh): discharging battery",
             )
 
-        # Default: solar steering for EV, net-zero for battery
         return HEMSSchedule(
             ev_mode=EVChargingMode.SOLAR,
             battery_mode=BatteryMode.NET_ZERO,
