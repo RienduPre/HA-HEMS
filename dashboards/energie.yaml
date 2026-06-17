@@ -1,0 +1,221 @@
+# HA-HEMS Lovelace Dashboard
+#
+# Installatie:
+#   1. Instellingen → Dashboards → + Dashboard toevoegen → "Nieuw dashboard vanaf scratch"
+#   2. Geef het een naam (bijv. "Energie"), klik op de drie puntjes → Bewerken in YAML
+#   3. Plak de inhoud van dit bestand erin
+#
+# Belangrijk:
+#   De entity_ids met "# TODO" zijn afhankelijk van wat discovery bij jou vindt
+#   (bijv. sensor.hems_ev_wallbox_links_power). Check na installatie via
+#   Instellingen → Apparaten en services → Entities → filter op "hems" en
+#   vervang de TODO-regels door de exacte entity_ids.
+#
+#   De *_total en *_avg sensoren (regels zonder TODO) bestaan altijd zodra
+#   het bijbehorende device-type is gevonden, dus die namen zijn vast.
+
+title: Energie (HA-HEMS)
+views:
+  - title: Overzicht
+    path: overzicht
+    icon: mdi:home-lightning-bolt-outline
+    type: sections
+    sections:
+      # ---------------------------------------------------------------
+      # Sectie 1: Realtime energiestroom (kerncijfers)
+      # ---------------------------------------------------------------
+      - type: grid
+        cards:
+          - type: heading
+            heading: Realtime energiestroom
+            icon: mdi:flash
+
+          - type: tile
+            entity: sensor.hems_solar_power_total
+            name: Zonnepanelen
+            icon: mdi:solar-power-variant
+            color: amber
+            features_position: bottom
+            vertical: false
+
+          - type: tile
+            entity: sensor.hems_grid_power_total
+            name: Net (+ = afname, - = teruglevering)
+            icon: mdi:transmission-tower
+            color: blue
+
+          - type: tile
+            entity: sensor.hems_battery_power_total
+            name: Batterij vermogen
+            icon: mdi:battery-charging
+            color: green
+
+          - type: tile
+            entity: sensor.hems_battery_soc_avg
+            name: Batterij laadniveau (gem.)
+            icon: mdi:battery
+            color: green
+
+          - type: tile
+            entity: sensor.hems_ev_power_total
+            name: EV laadvermogen (totaal)
+            icon: mdi:ev-station
+            color: purple
+
+          - type: tile
+            entity: sensor.hems_current_electricity_tariff
+            name: Huidig tarief
+            icon: mdi:currency-eur
+            color: red
+
+      # ---------------------------------------------------------------
+      # Sectie 2: Energiestroom grafiek (laatste 24 uur)
+      # ---------------------------------------------------------------
+      - type: grid
+        cards:
+          - type: heading
+            heading: Laatste 24 uur
+            icon: mdi:chart-line
+
+          - type: history-graph
+            title: Vermogens
+            hours_to_show: 24
+            entities:
+              - entity: sensor.hems_solar_power_total
+                name: Zon
+              - entity: sensor.hems_grid_power_total
+                name: Net
+              - entity: sensor.hems_battery_power_total
+                name: Batterij
+              - entity: sensor.hems_ev_power_total
+                name: EV
+
+          - type: history-graph
+            title: Tarief
+            hours_to_show: 24
+            entities:
+              - entity: sensor.hems_current_electricity_tariff
+                name: €/kWh
+
+      # ---------------------------------------------------------------
+      # Sectie 3: Zonnepanelen per omvormer
+      # ---------------------------------------------------------------
+      - type: grid
+        cards:
+          - type: heading
+            heading: Zonnepanelen (per omvormer)
+            icon: mdi:solar-power
+
+          - type: entities
+            title: Omvormers
+            entities:
+              - entity: sensor.hems_solar_power_total
+                name: Totaal
+              # TODO: voeg hier per omvormer toe, bijv.:
+              # - entity: sensor.hems_solar_devices_0_power
+              #   name: Growatt MIC 2500TL-X
+
+      # ---------------------------------------------------------------
+      # Sectie 4: Thuisbatterijen
+      # ---------------------------------------------------------------
+      - type: grid
+        cards:
+          - type: heading
+            heading: Thuisbatterijen
+            icon: mdi:battery
+
+          - type: entities
+            title: Batterijstatus
+            entities:
+              - entity: sensor.hems_battery_soc_avg
+                name: Gemiddeld laadniveau
+              - entity: sensor.hems_battery_power_total
+                name: Totaal vermogen
+              # TODO: voeg hier per batterij toe, bijv.:
+              # - entity: sensor.hems_battery_devices_0_soc
+              #   name: Sessy SOC
+              # - entity: sensor.hems_battery_devices_0_power
+              #   name: Sessy vermogen
+
+      # ---------------------------------------------------------------
+      # Sectie 5: EV laadpalen + besturing
+      # ---------------------------------------------------------------
+      - type: grid
+        cards:
+          - type: heading
+            heading: EV laadpalen
+            icon: mdi:ev-station
+
+          - type: entities
+            title: Laadpaal besturing (globaal)
+            entities:
+              - entity: select.hems_mode_all_chargers
+                name: Modus alle laadpalen
+
+          - type: entities
+            title: Laadpalen
+            entities:
+              - entity: sensor.hems_ev_power_total
+                name: Totaal laadvermogen
+              # TODO: voeg hier per laadpaal toe, bijv.:
+              # - entity: sensor.hems_ev_wallbox_links_power
+              #   name: Wallbox links
+              # - entity: select.hems_ev_wallbox_links_mode
+              #   name: Modus Wallbox links
+              # - entity: sensor.hems_ev_wallbox_rechts_power
+              #   name: Wallbox rechts
+              # - entity: select.hems_ev_wallbox_rechts_mode
+              #   name: Modus Wallbox rechts
+
+      # ---------------------------------------------------------------
+      # Sectie 6: Net & tarief
+      # ---------------------------------------------------------------
+      - type: grid
+        cards:
+          - type: heading
+            heading: Net & tarief
+            icon: mdi:transmission-tower
+
+          - type: entities
+            title: Slimme meter
+            entities:
+              - entity: sensor.hems_grid_power_total
+                name: Totaal vermogen
+              # TODO: voeg hier per meter toe indien je meerdere meters hebt:
+              # - entity: sensor.hems_grid_devices_0_power
+              #   name: P1 meter
+
+          - type: entities
+            title: Dynamisch tarief
+            entities:
+              - entity: sensor.hems_current_electricity_tariff
+                name: Huidig tarief
+
+  # =====================================================================
+  # Tweede tabblad: instellingen / fine-tuning
+  # =====================================================================
+  - title: Instellingen
+    path: instellingen
+    icon: mdi:cog
+    type: sections
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: HEMS besturing
+            icon: mdi:tune
+
+          - type: entities
+            title: Modus overrides
+            entities:
+              - entity: select.hems_mode_all_chargers
+                name: Alle laadpalen
+              # TODO: voeg per laadpaal de losse select toe (zie sectie 5 hierboven)
+
+          - type: markdown
+            content: >
+              Drempelwaarden (zonne-overschot, goedkoop/duur tarief) stel je in via
+
+              **Instellingen → Apparaten en services → HA-HEMS → Configureren**,
+
+              niet via dit dashboard.
