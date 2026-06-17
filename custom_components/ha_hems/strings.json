@@ -1,0 +1,44 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up HA-HEMS",
+        "description": "HA-HEMS automatically discovers your solar panels, smart meter, home batteries, and EV chargers. Only fill in a field below if you want to manually force a specific entity — otherwise leave everything blank.",
+        "data": {
+          "solar_entity": "Solar panel entity (optional)",
+          "grid_entity": "Smart meter entity (optional)",
+          "battery_soc_entity": "Battery state-of-charge entity (optional)",
+          "battery_power_entity": "Battery power entity (optional)",
+          "tariff_entity": "Dynamic tariff entity (optional)"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "HA-HEMS is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "HA-HEMS thresholds",
+        "description": "Tune the thresholds for solar-excess steering and tariff bands.",
+        "data": {
+          "solar_excess_threshold": "Start EV charging at solar excess (W)",
+          "solar_stop_threshold": "Stop EV charging below solar excess (W)",
+          "cheap_tariff_threshold": "Cheap tariff threshold (€/kWh)",
+          "expensive_tariff_threshold": "Expensive tariff threshold (€/kWh)"
+        }
+      }
+    }
+  },
+  "selector": {
+    "ev_mode": {
+      "options": {
+        "off": "Off",
+        "solar": "Solar only",
+        "solar_or_cheap": "Solar or cheap tariff",
+        "fast": "Fast charging"
+      }
+    }
+  }
+}

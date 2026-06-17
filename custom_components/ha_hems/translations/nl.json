@@ -1,0 +1,44 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "HA-HEMS instellen",
+        "description": "HA-HEMS detecteert automatisch je zonnepanelen, slimme meter, thuisbatterijen en EV-laders. Vul hieronder alleen iets in als je een specifieke entity handmatig wilt forceren — laat anders alles leeg.",
+        "data": {
+          "solar_entity": "Zonnepanelen entity (optioneel)",
+          "grid_entity": "Slimme meter entity (optioneel)",
+          "battery_soc_entity": "Batterij laadniveau entity (optioneel)",
+          "battery_power_entity": "Batterij vermogen entity (optioneel)",
+          "tariff_entity": "Dynamisch tarief entity (optioneel)"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "HA-HEMS is al geconfigureerd."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "HA-HEMS drempelwaarden",
+        "description": "Pas de drempelwaarden aan voor zonne-overschot sturing en tariefgrenzen.",
+        "data": {
+          "solar_excess_threshold": "Start EV-laden bij zonne-overschot (W)",
+          "solar_stop_threshold": "Stop EV-laden onder zonne-overschot (W)",
+          "cheap_tariff_threshold": "Goedkoop tarief grens (€/kWh)",
+          "expensive_tariff_threshold": "Duur tarief grens (€/kWh)"
+        }
+      }
+    }
+  },
+  "selector": {
+    "ev_mode": {
+      "options": {
+        "off": "Uit",
+        "solar": "Alleen zon",
+        "solar_or_cheap": "Zon of goedkoop tarief",
+        "fast": "Snel laden"
+      }
+    }
+  }
+}
