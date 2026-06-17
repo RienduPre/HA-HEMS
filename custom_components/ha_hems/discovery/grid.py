@@ -1,4 +1,4 @@
-"""Discover grid power entities — supports multiple meters (3-phase split etc)."""
+"""Discover grid power entities — supports multiple physically distinct meters."""
 from __future__ import annotations
 
 import logging
@@ -16,7 +16,24 @@ GRID_PLATFORMS = {
     "homewizard", "ztatz", "youless", "easyenergy",
 }
 
-GRID_KEYWORDS = ("net", "grid", "meter", "p1", "dsmr", "slimme", "levering", "afname")
+# Strict keywords for actual grid/meter entities. Deliberately narrow —
+# generic words like "net" or "power" alone caused false positives on
+# heat pump sensors, SEM template sensors, and other unrelated power readings.
+GRID_KEYWORDS_STRICT = (
+    "p1_meter", "p1 meter", "smart_meter", "slimme meter", "slimmemeter",
+    "dsmr", "netimport", "netexport", "netvermogen", "grid_active_power",
+    "grid_power", "meter_power",
+)
+
+# Hard excludes: things that should NEVER be picked as the grid sensor,
+# even if a loose keyword would otherwise match.
+EXCLUDE_SUBSTRINGS = (
+    "hems_",            # our own previously-created entities (avoid self-matching on reload)
+    "heat_pump", "heatpump", "warmtepomp", "outdoor_unit", "calculated_power",
+    "laadpaal", "wallbox", "ev_", "charger", "charging",
+    "net_naar", "netto",  # SEM template sensors like "Net naar EV/Huis/Batterij"
+    "gemiddeld", "max_power", "min_power",  # aggregated/derived stats, not live meter readings
+)
 
 
 @dataclass
@@ -26,15 +43,28 @@ class GridDevice:
     name: str
 
 
+def _is_excluded(uid: str, name: str, entity_id: str) -> bool:
+    haystack = f"{uid} {name} {entity_id}".lower()
+    return any(bad in haystack for bad in EXCLUDE_SUBSTRINGS)
+
+
 async def discover_grid(hass: HomeAssistant, entry: ConfigEntry) -> list[GridDevice]:
-    """Find all grid power entities."""
+    """Find grid power entities — one per physical meter/device.
+
+    Groups candidates by device_id so a single physical meter (which may
+    expose several diagnostic sensors) only contributes once. Picks the
+    single best (lowest-tier) entity per device.
+    """
     manual = entry.data.get("grid_entities")
     if manual:
         return [GridDevice(power_entity=e, name=f"Grid {i+1} (manual)") for i, e in enumerate(manual)]
 
     registry = er.async_get(hass)
-    candidates: list[tuple[int, str, str]] = []
-    seen: set[str] = set()
+
+    # device_id -> (tier, entity_id, name)  — keep only the best match per device
+    best_per_device: dict[str, tuple[int, str, str]] = {}
+    # Entities with no device_id are tracked individually by entity_id
+    standalone: dict[str, tuple[int, str, str]] = {}
 
     for entity in registry.entities.values():
         if entity.domain != "sensor" or entity.disabled_by:
@@ -48,21 +78,29 @@ async def discover_grid(hass: HomeAssistant, entry: ConfigEntry) -> list[GridDev
         name = (entity.original_name or "").lower()
         eid = entity.entity_id
 
-        if eid in seen:
+        if _is_excluded(uid, name, eid):
             continue
 
+        tier: int | None = None
         if platform in GRID_PLATFORMS:
-            candidates.append((0, eid, entity.original_name or eid))
-            seen.add(eid)
-        elif any(kw in uid or kw in name for kw in GRID_KEYWORDS):
-            candidates.append((1, eid, entity.original_name or eid))
-            seen.add(eid)
+            tier = 0
+        elif any(kw in uid or kw in name for kw in GRID_KEYWORDS_STRICT):
+            tier = 1
 
-    if not candidates:
+        if tier is None:
+            continue
+
+        key = entity.device_id or f"__standalone__{eid}"
+        target = best_per_device
+        existing = target.get(key)
+        if existing is None or tier < existing[0]:
+            target[key] = (tier, eid, entity.original_name or eid)
+
+    if not best_per_device:
         _LOGGER.warning("Grid discovery: no meter found")
         return []
 
-    candidates.sort(key=lambda x: x[0])
-    result = [GridDevice(power_entity=c[1], name=c[2]) for c in candidates]
-    _LOGGER.info("Grid discovery: found %d meter(s): %s", len(result), [r.power_entity for r in result])
-    return result
+    results = sorted(best_per_device.values(), key=lambda x: x[0])
+    devices = [GridDevice(power_entity=r[1], name=r[2]) for r in results]
+    _LOGGER.info("Grid discovery: found %d meter(s): %s", len(devices), [d.power_entity for d in devices])
+    return devices

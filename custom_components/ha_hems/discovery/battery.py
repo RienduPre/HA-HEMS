@@ -1,4 +1,4 @@
-"""Discover home battery entities — supports multiple batteries."""
+"""Discover home battery entities — one SOC+power pair per physical battery."""
 from __future__ import annotations
 
 import logging
@@ -16,7 +16,14 @@ BATTERY_PLATFORMS = {
     "foxess", "goodwe", "pylontech", "byd_bess",
 }
 
-BATTERY_KEYWORDS = ("battery", "batterij", "accu", "bess", "storage")
+BATTERY_KEYWORDS_STRICT = ("sessy", "batterij", "battery", "accu", "bess")
+
+EXCLUDE_SUBSTRINGS = (
+    "hems_",
+    "heat_pump", "heatpump", "warmtepomp",
+    "laadpaal", "wallbox", "ev_", "charger", "charging",
+    "grid", "net_naar", "netto",
+)
 
 
 @dataclass
@@ -27,9 +34,20 @@ class BatteryDevice:
     name: str
 
 
+def _is_excluded(uid: str, name: str, entity_id: str) -> bool:
+    haystack = f"{uid} {name} {entity_id}".lower()
+    return any(bad in haystack for bad in EXCLUDE_SUBSTRINGS)
+
+
 async def discover_battery(hass: HomeAssistant, entry: ConfigEntry) -> list[BatteryDevice]:
-    """Find all home battery units."""
-    manual = entry.data.get("battery_devices")  # list of {soc, power}
+    """Find all home battery units, grouped strictly by device_id.
+
+    A standalone (no device_id) SOC or power sensor is NOT paired with
+    another standalone sensor — that caused incorrect cross-pairing
+    between unrelated SOC/power sensors in earlier versions. Only
+    sensors sharing the same physical device_id are combined.
+    """
+    manual = entry.data.get("battery_devices")
     if manual:
         return [
             BatteryDevice(soc_entity=b["soc"], power_entity=b["power"], name=f"Battery {i+1} (manual)")
@@ -38,9 +56,8 @@ async def discover_battery(hass: HomeAssistant, entry: ConfigEntry) -> list[Batt
 
     registry = er.async_get(hass)
 
-    # Group by device_id: each physical battery has one SOC + one power entity
-    soc_by_device: dict[str, tuple[str, str, int]] = {}    # device_id -> (entity_id, name, tier)
-    power_by_device: dict[str, tuple[str, int]] = {}       # device_id -> (entity_id, tier)
+    soc_by_device: dict[str, tuple[int, str, str]] = {}
+    power_by_device: dict[str, tuple[int, str]] = {}
 
     for entity in registry.entities.values():
         if entity.domain != "sensor" or entity.disabled_by:
@@ -49,11 +66,18 @@ async def discover_battery(hass: HomeAssistant, entry: ConfigEntry) -> list[Batt
         platform = entity.platform or ""
         uid = (entity.unique_id or "").lower()
         name = (entity.original_name or "").lower()
+        eid = entity.entity_id
         dc = entity.device_class or entity.original_device_class
-        device_id = entity.device_id or entity.entity_id  # fallback grouping
+        device_id = entity.device_id
+
+        if not device_id:
+            continue  # require a real device grouping to avoid cross-pairing unrelated sensors
+
+        if _is_excluded(uid, name, eid):
+            continue
 
         is_battery_platform = platform in BATTERY_PLATFORMS
-        has_battery_hint = any(kw in uid or kw in name for kw in BATTERY_KEYWORDS)
+        has_battery_hint = any(kw in uid or kw in name for kw in BATTERY_KEYWORDS_STRICT)
 
         if not (is_battery_platform or has_battery_hint):
             continue
@@ -61,24 +85,22 @@ async def discover_battery(hass: HomeAssistant, entry: ConfigEntry) -> list[Batt
         tier = 0 if is_battery_platform else 1
 
         if dc == SensorDeviceClass.BATTERY:
-            if device_id not in soc_by_device or tier < soc_by_device[device_id][2]:
-                soc_by_device[device_id] = (entity.entity_id, entity.original_name or entity.entity_id, tier)
+            existing = soc_by_device.get(device_id)
+            if existing is None or tier < existing[0]:
+                soc_by_device[device_id] = (tier, eid, entity.original_name or eid)
 
         if dc == SensorDeviceClass.POWER:
-            if device_id not in power_by_device or tier < power_by_device[device_id][1]:
-                power_by_device[device_id] = (entity.entity_id, tier)
+            existing = power_by_device.get(device_id)
+            if existing is None or tier < existing[0]:
+                power_by_device[device_id] = (tier, eid)
 
     batteries = []
-    for device_id, (soc_eid, soc_name, _) in soc_by_device.items():
+    for device_id, (_, soc_eid, soc_name) in soc_by_device.items():
         power_info = power_by_device.get(device_id)
         if not power_info:
-            _LOGGER.warning("Battery %s: no power entity found, skipping", soc_name)
+            _LOGGER.warning("Battery '%s': no power entity on same device, skipping", soc_name)
             continue
-        batteries.append(BatteryDevice(
-            soc_entity=soc_eid,
-            power_entity=power_info[0],
-            name=soc_name,
-        ))
+        batteries.append(BatteryDevice(soc_entity=soc_eid, power_entity=power_info[1], name=soc_name))
 
     _LOGGER.info("Battery discovery: found %d unit(s)", len(batteries))
     return batteries
