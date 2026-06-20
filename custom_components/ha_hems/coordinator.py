@@ -14,6 +14,9 @@ from .discovery.grid import discover_grid
 from .discovery.battery import discover_battery
 from .discovery.ev_charger import discover_ev_chargers
 from .discovery.tariff import discover_tariff
+from .discovery.heat_pump import discover_heat_pumps
+from .discovery.ac import discover_ac_units
+from .discovery.pool_pump import discover_pool_pumps
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -29,11 +32,13 @@ class HEMSCoordinator(DataUpdateCoordinator):
             update_interval=timedelta(seconds=UPDATE_INTERVAL_SECONDS),
         )
         self.entry = entry
-        # All are now lists
         self.solar_devices: list = []
         self.grid_devices: list = []
         self.battery_devices: list = []
         self.ev_chargers: list = []
+        self.heat_pumps: list = []
+        self.ac_units: list = []
+        self.pool_pumps: list = []
         self.tariff = None
         self._manager = None
 
@@ -46,12 +51,16 @@ class HEMSCoordinator(DataUpdateCoordinator):
         self.grid_devices = await discover_grid(self.hass, self.entry)
         self.battery_devices = await discover_battery(self.hass, self.entry)
         self.ev_chargers = await discover_ev_chargers(self.hass, self.entry)
+        self.heat_pumps = await discover_heat_pumps(self.hass, self.entry)
+        self.ac_units = await discover_ac_units(self.hass, self.entry)
+        self.pool_pumps = await discover_pool_pumps(self.hass, self.entry)
         self.tariff = await discover_tariff(self.hass, self.entry)
 
         _LOGGER.info(
-            "Discovery complete: %d solar, %d grid, %d battery, %d EV, tariff=%s",
+            "Discovery complete: %d solar, %d grid, %d battery, %d EV, %d heat pump, %d AC, %d pool pump, tariff=%s",
             len(self.solar_devices), len(self.grid_devices),
             len(self.battery_devices), len(self.ev_chargers),
+            len(self.heat_pumps), len(self.ac_units), len(self.pool_pumps),
             self.tariff.price_entity if self.tariff else "none",
         )
 
@@ -114,6 +123,33 @@ class HEMSCoordinator(DataUpdateCoordinator):
             data["current_tariff"] = (
                 self._get_state_float(self.tariff.price_entity) if self.tariff else None
             )
+
+            # Heat pumps
+            data["heat_pumps"] = [
+                {
+                    "name": hp.name,
+                    "power": self._get_state_float(hp.power_entity),
+                }
+                for hp in self.heat_pumps
+            ]
+
+            # AC units
+            data["ac_units"] = [
+                {
+                    "name": ac.name,
+                    "power": self._get_state_float(ac.power_entity),
+                }
+                for ac in self.ac_units
+            ]
+
+            # Pool pumps
+            data["pool_pumps"] = [
+                {
+                    "name": pp.name,
+                    "power": self._get_state_float(pp.power_entity),
+                }
+                for pp in self.pool_pumps
+            ]
 
             if self._manager:
                 await self._manager.async_evaluate()

@@ -6,6 +6,13 @@ from enum import Enum
 
 from homeassistant.core import HomeAssistant
 
+from ..const import (
+    CONF_SOLAR_EXCESS_THRESHOLD,
+    CONF_SOLAR_STOP_THRESHOLD,
+    DEFAULT_SOLAR_EXCESS_THRESHOLD,
+    DEFAULT_SOLAR_STOP_THRESHOLD,
+)
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -17,9 +24,6 @@ class EVChargingMode(str, Enum):
     FAST = "fast"
 
 
-SOLAR_EXCESS_THRESHOLD_W = 300
-SOLAR_STOP_THRESHOLD_W = 100
-CHEAP_TARIFF_THRESHOLD = 0.10
 MIN_CHARGE_POWER_W = 1380
 
 
@@ -47,6 +51,20 @@ class EVChargerController:
         data = self.coordinator.data or {}
         grid_w = data.get("grid_power_total") or 0.0
         tariff = data.get("current_tariff")
+        battery_devices = data.get("battery_devices", [])
+
+        # Get thresholds from options
+        options = self.coordinator.entry.options
+        solar_start = options.get(CONF_SOLAR_EXCESS_THRESHOLD, DEFAULT_SOLAR_EXCESS_THRESHOLD)
+        solar_stop = options.get(CONF_SOLAR_STOP_THRESHOLD, DEFAULT_SOLAR_STOP_THRESHOLD)
+
+        # Check if battery is too low (don't drain it for EV charging)
+        battery_safe = True
+        if battery_devices:
+            min_soc = min((b.get("soc") for b in battery_devices if b.get("soc") is not None), default=100)
+            if min_soc is not None and min_soc < 20:
+                battery_safe = False
+                _LOGGER.debug("%s: battery SOC too low (%.0f%%), skipping charge", self.charger.name, min_soc)
 
         solar_excess_w = max(0.0, -grid_w)
         currently_charging = self.coordinator._get_state_bool(self.charger.charging_switch)
@@ -58,32 +76,32 @@ class EVChargerController:
                 await self._set_charging(False)
 
         elif mode == EVChargingMode.FAST:
-            if not currently_charging:
+            if not currently_charging and battery_safe:
                 await self._set_charging(True)
 
         elif mode == EVChargingMode.SOLAR:
-            await self._control_solar(solar_excess_w, currently_charging)
+            await self._control_solar(solar_excess_w, currently_charging, solar_start, solar_stop, battery_safe)
 
         elif mode == EVChargingMode.SOLAR_OR_CHEAP:
-            cheap = tariff is not None and tariff < CHEAP_TARIFF_THRESHOLD
+            cheap = tariff is not None and tariff < 0.10
             if cheap:
-                if not currently_charging:
+                if not currently_charging and battery_safe:
                     _LOGGER.info("%s: cheap tariff (%.4f €/kWh), starting charge", self.charger.name, tariff)
                     await self._set_charging(True)
             else:
-                await self._control_solar(solar_excess_w, currently_charging)
+                await self._control_solar(solar_excess_w, currently_charging, solar_start, solar_stop, battery_safe)
 
-    async def _control_solar(self, solar_excess_w: float, currently_charging: bool) -> None:
-        if not currently_charging and solar_excess_w >= SOLAR_EXCESS_THRESHOLD_W:
+    async def _control_solar(self, solar_excess_w: float, currently_charging: bool, solar_start: float, solar_stop: float, battery_safe: bool) -> None:
+        if not currently_charging and solar_excess_w >= solar_start and battery_safe:
             _LOGGER.info(
-                "%s: solar excess %.0f W >= threshold %d W, starting charge",
-                self.charger.name, solar_excess_w, SOLAR_EXCESS_THRESHOLD_W,
+                "%s: solar excess %.0f W >= threshold %.0f W, starting charge",
+                self.charger.name, solar_excess_w, solar_start,
             )
             await self._set_charging(True)
-        elif currently_charging and solar_excess_w < SOLAR_STOP_THRESHOLD_W:
+        elif currently_charging and solar_excess_w < solar_stop:
             _LOGGER.info(
-                "%s: solar excess %.0f W < stop threshold %d W, stopping charge",
-                self.charger.name, solar_excess_w, SOLAR_STOP_THRESHOLD_W,
+                "%s: solar excess %.0f W < stop threshold %.0f W, stopping charge",
+                self.charger.name, solar_excess_w, solar_stop,
             )
             await self._set_charging(False)
 

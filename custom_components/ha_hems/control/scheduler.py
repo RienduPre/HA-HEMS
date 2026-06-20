@@ -16,6 +16,9 @@ from ..const import (
 )
 from .ev_charger import EVChargingMode
 from .battery import BatteryMode
+from .heat_pump import HeatPumpMode
+from .ac import ACMode
+from .pool_pump import PoolPumpMode
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -25,6 +28,9 @@ class HEMSSchedule:
     """Current mode decisions for all devices."""
     ev_mode: EVChargingMode = EVChargingMode.SOLAR
     battery_mode: BatteryMode = BatteryMode.NET_ZERO
+    heat_pump_mode: HeatPumpMode = HeatPumpMode.NORMAL
+    ac_mode: ACMode = ACMode.NORMAL
+    pool_pump_mode: PoolPumpMode = PoolPumpMode.NORMAL
     reason: str = ""
 
 
@@ -48,6 +54,9 @@ class HEMSScheduler:
             return HEMSSchedule(
                 ev_mode=EVChargingMode.FAST,
                 battery_mode=BatteryMode.CHARGE,
+                heat_pump_mode=HeatPumpMode.SOLAR,
+                ac_mode=ACMode.SOLAR,
+                pool_pump_mode=PoolPumpMode.SOLAR,
                 reason=f"Negative tariff ({tariff:.4f} €/kWh): maximize consumption",
             )
 
@@ -55,6 +64,9 @@ class HEMSScheduler:
             return HEMSSchedule(
                 ev_mode=EVChargingMode.FAST,
                 battery_mode=BatteryMode.CHARGE,
+                heat_pump_mode=HeatPumpMode.SOLAR,
+                ac_mode=ACMode.SOLAR,
+                pool_pump_mode=PoolPumpMode.SOLAR,
                 reason=f"Very cheap tariff ({tariff:.4f} €/kWh): opportunistic charging",
             )
 
@@ -62,6 +74,9 @@ class HEMSScheduler:
             return HEMSSchedule(
                 ev_mode=EVChargingMode.SOLAR_OR_CHEAP,
                 battery_mode=BatteryMode.NET_ZERO,
+                heat_pump_mode=HeatPumpMode.SOLAR,
+                ac_mode=ACMode.SOLAR,
+                pool_pump_mode=PoolPumpMode.SOLAR,
                 reason=f"Cheap tariff ({tariff:.4f} €/kWh): solar or cheap EV charging",
             )
 
@@ -69,11 +84,17 @@ class HEMSScheduler:
             return HEMSSchedule(
                 ev_mode=EVChargingMode.SOLAR,
                 battery_mode=BatteryMode.DISCHARGE,
+                heat_pump_mode=HeatPumpMode.NORMAL,
+                ac_mode=ACMode.NORMAL,
+                pool_pump_mode=PoolPumpMode.NORMAL,
                 reason=f"Expensive tariff ({tariff:.4f} €/kWh): discharging battery",
             )
 
         return HEMSSchedule(
             ev_mode=EVChargingMode.SOLAR,
             battery_mode=BatteryMode.NET_ZERO,
+            heat_pump_mode=HeatPumpMode.NORMAL,
+            ac_mode=ACMode.NORMAL,
+            pool_pump_mode=PoolPumpMode.NORMAL,
             reason="Default: solar steering",
         )

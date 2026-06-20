@@ -37,8 +37,9 @@ class BatteryController:
     async def async_evaluate(self) -> None:
         """Evaluate and send setpoint to battery."""
         data = self.coordinator.data or {}
-        grid_w = data.get("grid_power") or 0.0
-        soc = data.get("battery_soc")
+        grid_w = data.get("grid_power_total") or 0.0
+        soc_values = [b["soc"] for b in data.get("battery_devices", []) if b.get("soc") is not None]
+        soc = soc_values[0] if soc_values else None
 
         if soc is None:
             _LOGGER.warning("Battery: SOC unknown, skipping control")
